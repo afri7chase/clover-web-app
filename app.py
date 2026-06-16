@@ -16,6 +16,7 @@ importlib.reload(charts_module)
 importlib.reload(sidebar_module)
 
 render_kpi_cards = cards_module.render_kpi_cards
+render_duplicate_summary_cards = cards_module.render_duplicate_summary_cards
 render_top_issues_panel = cards_module.render_top_issues_panel
 render_duplicate_donut_chart = charts_module.render_duplicate_donut_chart
 render_missing_values_chart = charts_module.render_missing_values_chart
@@ -456,6 +457,7 @@ def apply_theme() -> None:
                 border-radius: 18px;
                 padding: 0.72rem 0.78rem;
                 min-height: 104px;
+                height: 100%;
                 box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
                 transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
                 margin-bottom: 0.08rem;
@@ -471,11 +473,15 @@ def apply_theme() -> None:
                 display: flex;
                 align-items: flex-start;
                 gap: 0.72rem;
+                height: 100%;
             }
 
             .clover-kpi-copy {
                 min-width: 0;
                 flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
             }
 
             .clover-kpi-icon {
@@ -530,6 +536,21 @@ def apply_theme() -> None:
                 color: var(--clover-muted);
                 line-height: 1.25;
                 margin-top: 0.14rem;
+            }
+
+            .clover-kpi-duplicate-summary {
+                min-height: 138px;
+            }
+
+            .clover-kpi-duplicate-summary .clover-kpi-title {
+                min-height: 2.35em;
+                display: flex;
+                align-items: flex-start;
+                font-size: 0.62rem;
+            }
+
+            .clover-kpi-duplicate-summary .clover-kpi-note {
+                min-height: 1.25em;
             }
 
             .clover-kpi-good { border-top: 3px solid var(--clover-accent); }
@@ -1570,24 +1591,42 @@ def render_duplicate_analysis_page(metrics: dict) -> None:
         "Duplicate Analysis",
         "Quantify duplicate impact and review the balance between unique and repeated rows.",
     )
+    duplicate_summary = metrics.get("duplicate_summary", {})
+    duplicate_tables = metrics.get("duplicate_tables", {})
+
     top_left, top_right = st.columns((0.95, 1.05), gap="large")
     with top_left:
         render_duplicate_donut_chart(metrics, chart_key="duplicate_analysis_donut")
     with top_right:
-        st.markdown("### Duplicate Summary")
-        st.write(
-            {
-                "exact_duplicate_rows": metrics["duplicate_rows"],
-                "email_duplicate_rows": metrics.get("duplicate_summary", {}).get("email_duplicates_count", 0),
-                "total_rows": metrics["total_rows"],
-                "exact_duplicate_ratio_pct": round(
-                    (metrics["duplicate_rows"] / metrics["total_rows"]) * 100,
-                    1,
-                )
-                if metrics["total_rows"]
-                else 0.0,
-            }
+        render_section_header(
+            "Duplicate Summary",
+            "A quick operational view of exact duplicate rows, repeated email values, and total duplicate impact.",
         )
+        render_duplicate_summary_cards(duplicate_summary, metrics["total_rows"])
+
+    render_section_header(
+        "Duplicate Previews",
+        "Expand the relevant preview to inspect duplicate rows returned by the Clover backend.",
+    )
+    exact_duplicates = duplicate_tables.get("exact_duplicates")
+    with st.expander(
+        "Exact Row Duplicates Preview",
+        expanded=False,
+    ):
+        if isinstance(exact_duplicates, pd.DataFrame) and not exact_duplicates.empty:
+            st.dataframe(exact_duplicates.head(10), use_container_width=True)
+        else:
+            st.info("No exact row duplicates found.")
+
+    email_duplicates = duplicate_tables.get("email_duplicates")
+    with st.expander(
+        "Email Duplicates Preview",
+        expanded=False,
+    ):
+        if isinstance(email_duplicates, pd.DataFrame) and not email_duplicates.empty:
+            st.dataframe(email_duplicates.head(10), use_container_width=True)
+        else:
+            st.info("No email duplicates found.")
 
 
 def render_validation_checks_page(metrics: dict) -> None:

@@ -6,13 +6,19 @@ def _render_card(
     value: str,
     tone: str,
     icon: str,
-    status: str,
+    status: str | None,
     note: str | None = None,
     value_suffix: str | None = None,
+    card_class: str | None = None,
 ) -> None:
     note_html = (
         f'<div class="clover-kpi-note">{note}</div>'
         if note
+        else ""
+    )
+    status_html = (
+        f'<div class="clover-kpi-status">{status}</div>'
+        if status
         else ""
     )
     suffix_html = (
@@ -20,22 +26,23 @@ def _render_card(
         if value_suffix
         else ""
     )
-    st.markdown(
-        f"""
-        <div class="clover-kpi-card clover-tone-{tone} clover-kpi-{tone}">
+    classes = " ".join(
+        part for part in ["clover-kpi-card", f"clover-tone-{tone}", f"clover-kpi-{tone}", card_class] if part
+    )
+    card_html = f"""
+        <div class="{classes}">
             <div class="clover-kpi-shell">
                 <div class="clover-kpi-icon">{icon}</div>
                 <div class="clover-kpi-copy">
                     <div class="clover-kpi-title">{title}</div>
                     <div class="clover-kpi-value">{value}{suffix_html}</div>
-                    <div class="clover-kpi-status">{status}</div>
+                    {status_html}
                     {note_html}
                 </div>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """
+    st.markdown(card_html, unsafe_allow_html=True)
 
 
 def render_kpi_cards(metrics: dict, quality_score: float, quality_status: dict) -> None:
@@ -100,6 +107,67 @@ def render_kpi_cards(metrics: dict, quality_score: float, quality_status: dict) 
     ]
 
     for column, card in zip(columns, card_values):
+        with column:
+            _render_card(**card)
+
+
+def render_duplicate_summary_cards(duplicate_summary: dict, total_rows: int) -> None:
+    """Render duplicate-analysis summary cards using the shared KPI styling."""
+    exact_duplicate_rows = int(duplicate_summary.get("exact_duplicates_count", 0))
+    email_duplicate_rows = int(duplicate_summary.get("email_duplicates_count", 0))
+    duplicate_ratio = float(duplicate_summary.get("exact_duplicates_pct", 0.0))
+
+    exact_tone = "danger" if exact_duplicate_rows > 0 else "good"
+    email_tone = "warning" if email_duplicate_rows > 0 else "good"
+    ratio_tone = "danger" if duplicate_ratio >= 10 else "warning" if duplicate_ratio > 0 else "good"
+
+    card_values = [
+        {
+            "title": "Exact Duplicate Rows",
+            "value": f"{exact_duplicate_rows:,}",
+            "tone": exact_tone,
+            "icon": "&#10697;",
+            "status": "ACTION" if exact_duplicate_rows > 0 else "CLEAR",
+            "note": "Rows matched exactly",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Email Duplicate Rows",
+            "value": f"{email_duplicate_rows:,}",
+            "tone": email_tone,
+            "icon": "&#9993;",
+            "status": "REVIEW" if email_duplicate_rows > 0 else "CLEAR",
+            "note": "Duplicate email values",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Total Rows",
+            "value": f"{total_rows:,}",
+            "tone": "teal",
+            "icon": "&#9635;",
+            "status": "RECORDS",
+            "note": "Rows evaluated",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Duplicate Ratio",
+            "value": f"{duplicate_ratio:.1f}",
+            "tone": ratio_tone,
+            "icon": "&#9681;",
+            "status": "IMPACT" if duplicate_ratio > 0 else "CLEAR",
+            "note": "Duplicate impact",
+            "value_suffix": "%",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+    ]
+
+    first_row = st.columns(2, gap="medium")
+    for column, card in zip(first_row, card_values[:2]):
+        with column:
+            _render_card(**card)
+
+    second_row = st.columns(2, gap="medium")
+    for column, card in zip(second_row, card_values[2:]):
         with column:
             _render_card(**card)
 
