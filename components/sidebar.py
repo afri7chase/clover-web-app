@@ -49,14 +49,13 @@ def render_sidebar(dataset_info=None):
             unsafe_allow_html=True,
         )
 
-        navigation = st.session_state["clover_nav"]
         st.markdown(
             '<div class="clover-sidebar-section-label">Navigation</div>',
             unsafe_allow_html=True,
         )
         for item in NAVIGATION_OPTIONS:
             slug = _nav_slug(item)
-            is_active = navigation == item
+            is_active = st.session_state["clover_nav"] == item
             container_key = (
                 f"clover-nav-active-{slug}" if is_active else f"clover-nav-item-{slug}"
             )
@@ -67,8 +66,9 @@ def render_sidebar(dataset_info=None):
                     icon=NAVIGATION_ICONS[item],
                     use_container_width=True,
                 ):
-                    st.session_state["clover_nav"] = item
-                    navigation = item
+                    if st.session_state["clover_nav"] != item:
+                        st.session_state["clover_nav"] = item
+                        st.rerun()
 
         with st.container(key="clover-sidebar-upload-card"):
             st.markdown(
@@ -138,5 +138,5 @@ def render_sidebar(dataset_info=None):
             unsafe_allow_html=True,
         )
 
-    return navigation, uploaded_file
+    return st.session_state["clover_nav"], uploaded_file
 
