@@ -388,22 +388,16 @@ def apply_theme() -> None:
                 line-height: 1.35;
             }
 
-            .clover-header-controls {
-                display: flex;
-                align-items: center;
-                justify-content: flex-end;
-                gap: 0.6rem;
-                min-width: 0;
-            }
-
             div[class*="st-key-clover-header-dataset"] {
-                min-width: 220px;
-                max-width: 220px;
+                min-width: 0;
+                max-width: none;
+                width: 100%;
                 padding-top: 0.05rem;
             }
 
             div[class*="st-key-clover-header-dataset"] [data-baseweb="select"] > div {
                 min-height: 2.1rem;
+                padding-right: 0.2rem;
                 border-radius: 12px;
                 border-color: rgba(124, 156, 191, 0.18);
                 background: rgba(255, 255, 255, 0.04);
@@ -419,19 +413,80 @@ def apply_theme() -> None:
                 color: var(--clover-text);
             }
 
+            div[class*="st-key-clover-header-dataset"] [data-baseweb="select"] {
+                width: 100%;
+            }
+
+            div[class*="st-key-clover-header-dataset"] [data-baseweb="select"] [title] {
+                max-width: 100%;
+            }
+
+            div[class*="st-key-clover-header-dataset"] [data-baseweb="select"] [title] > div,
+            div[class*="st-key-clover-header-dataset"] [data-baseweb="select"] [title] span {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
             .clover-header-chip {
                 display: inline-flex;
                 align-items: center;
                 gap: 0.35rem;
-                min-height: 2.1rem;
-                padding: 0.42rem 0.72rem;
+                min-height: 1.95rem;
+                padding: 0.34rem 0.58rem;
                 border-radius: 12px;
                 border: 1px solid rgba(124, 156, 191, 0.18);
                 background: rgba(255, 255, 255, 0.04);
                 color: var(--clover-text);
-                font-size: 0.76rem;
+                font-size: 0.72rem;
                 font-weight: 600;
                 white-space: nowrap;
+                flex: 0 0 auto;
+            }
+
+            div[class*="st-key-clover-header-controls-shell"] {
+                width: 100%;
+            }
+
+            div[class*="st-key-clover-header-controls-shell"] [data-testid="stHorizontalBlock"] {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 0.95rem;
+                row-gap: 0.7rem;
+            }
+
+            div[class*="st-key-clover-header-controls-shell"] [data-testid="stColumn"] {
+                min-width: 0;
+            }
+
+            div[class*="st-key-clover-header-controls-shell"] [data-testid="stColumn"]:first-child {
+                flex: 1 1 380px !important;
+                min-width: 320px;
+            }
+
+            div[class*="st-key-clover-header-controls-shell"] [data-testid="stColumn"]:last-child {
+                flex: 0 1 auto !important;
+                min-width: max-content;
+            }
+
+            @media (max-width: 980px) {
+                .clover-header-chip {
+                    font-size: 0.68rem;
+                    padding: 0.32rem 0.52rem;
+                }
+
+                div[class*="st-key-clover-header-controls-shell"] [data-testid="stHorizontalBlock"] {
+                    justify-content: stretch;
+                    gap: 0.68rem;
+                }
+
+                div[class*="st-key-clover-header-controls-shell"] [data-testid="stColumn"]:first-child,
+                div[class*="st-key-clover-header-controls-shell"] [data-testid="stColumn"]:last-child {
+                    flex: 1 1 100% !important;
+                    min-width: 100%;
+                }
             }
 
             .clover-section-head {
@@ -818,7 +873,7 @@ def render_section_header(title: str, subtitle: str) -> None:
 def render_top_header(dataset_info: dict) -> None:
     """Render the compact dashboard header area."""
     with st.container(key="clover-top-header-shell"):
-        header_left, header_right = st.columns((1.45, 1), gap="medium")
+        header_left, header_right = st.columns((1.2, 1.1), gap="large")
         with header_left:
             st.markdown(
                 """
@@ -830,21 +885,23 @@ def render_top_header(dataset_info: dict) -> None:
                 unsafe_allow_html=True,
             )
         with header_right:
-            control_left, control_right = st.columns((1.15, 1), gap="small")
-            with control_left:
-                with st.container(key="clover-header-dataset"):
-                    st.selectbox(
-                        "Dataset",
-                        options=[dataset_info.get("file_name", "No dataset loaded")],
-                        index=0,
-                        label_visibility="collapsed",
-                        key="clover_header_dataset_selector",
+            with st.container(key="clover-header-controls-shell"):
+                control_left, control_right = st.columns((1.8, 0.75), gap="medium")
+                with control_left:
+                    with st.container(key="clover-header-dataset"):
+                        st.selectbox(
+                            "Dataset",
+                            options=[dataset_info.get("file_name", "No dataset loaded")],
+                            index=0,
+                            label_visibility="collapsed",
+                            help=f"Full filename: {dataset_info.get('file_name', 'No dataset loaded')}",
+                            key="clover_header_dataset_selector",
+                        )
+                with control_right:
+                    st.markdown(
+                        f'<div class="clover-header-chip">Last analyzed: {dataset_info.get("upload_date", "Not uploaded")}</div>',
+                        unsafe_allow_html=True,
                     )
-            with control_right:
-                st.markdown(
-                    f'<div class="clover-header-chip">Last analyzed: {dataset_info.get("upload_date", "Not uploaded")}</div>',
-                    unsafe_allow_html=True,
-                )
 
 
 def load_dataset(uploaded_file) -> pd.DataFrame | None:
