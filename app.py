@@ -17,6 +17,7 @@ importlib.reload(sidebar_module)
 
 render_kpi_cards = cards_module.render_kpi_cards
 render_duplicate_summary_cards = cards_module.render_duplicate_summary_cards
+render_validation_summary_cards = cards_module.render_validation_summary_cards
 render_top_issues_panel = cards_module.render_top_issues_panel
 render_duplicate_donut_chart = charts_module.render_duplicate_donut_chart
 render_missing_values_chart = charts_module.render_missing_values_chart
@@ -805,6 +806,41 @@ def apply_theme() -> None:
                 box-shadow: 0 18px 46px rgba(0, 0, 0, 0.22);
             }
 
+            div[class*="st-key-clover-validation-preview-"] {
+                min-height: 23rem;
+                padding: 1rem 1rem 0.9rem;
+                border: 1px solid var(--clover-border);
+                border-radius: 22px;
+                background: linear-gradient(180deg, rgba(18, 31, 49, 0.94), rgba(9, 18, 30, 0.98));
+                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
+            }
+
+            div[class*="st-key-clover-validation-preview-"] > div[data-testid="stVerticalBlock"] {
+                height: 100%;
+                gap: 0.55rem;
+                justify-content: flex-start;
+            }
+
+            .clover-validation-preview-head {
+                min-height: 4rem;
+                display: grid;
+                align-content: start;
+                gap: 0.25rem;
+            }
+
+            .clover-validation-preview-title {
+                font-size: 0.98rem;
+                font-weight: 700;
+                color: var(--clover-text);
+                line-height: 1.35;
+            }
+
+            .clover-validation-preview-subtitle {
+                color: var(--clover-muted);
+                font-size: 0.8rem;
+                line-height: 1.4;
+            }
+
             .clover-report-copy {
                 color: var(--clover-muted);
                 line-height: 1.6;
@@ -929,6 +965,21 @@ def _empty_validation_result(label: str) -> dict:
     }
 
 
+def _empty_validation_preview_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=["row_number", "column_name", "invalid_value", "reason"]
+    )
+
+
+def _empty_validation_previews() -> dict:
+    return {
+        "email": _empty_validation_preview_frame(),
+        "name": _empty_validation_preview_frame(),
+        "dob": _empty_validation_preview_frame(),
+        "phone": _empty_validation_preview_frame(),
+    }
+
+
 def build_empty_metrics() -> dict:
     empty_missing = pd.DataFrame({"column": ["No data loaded"], "missing_values": [0]})
     empty_uniqueness = pd.DataFrame(
@@ -964,6 +1015,7 @@ def build_empty_metrics() -> dict:
         "special_character_columns": empty_special,
         "special_character_total": 0,
         "validation_results": empty_validation,
+        "validation_previews": _empty_validation_previews(),
         "validation_overview": {
             "valid_count": 0,
             "invalid_count": 0,
@@ -990,7 +1042,7 @@ def _normalize_column_name(column_name: str) -> str:
 def _resolve_validation_bucket(column_name: str, field_type: str | None = None) -> str | None:
     if field_type == "phone":
         return "phone"
-    if field_type == "date_of_birth":
+    if field_type in {"date_of_birth", "date"}:
         return "dob"
     if field_type == "name":
         return "name"
@@ -1053,6 +1105,29 @@ def _aggregate_validation_results(clover_results: dict) -> tuple[dict, dict]:
         else 0.0,
     }
     return validation_results, validation_overview
+
+
+def _coerce_validation_preview(preview_data) -> pd.DataFrame:
+    if isinstance(preview_data, pd.DataFrame):
+        preview = preview_data.copy()
+    elif isinstance(preview_data, list):
+        preview = pd.DataFrame(preview_data)
+    else:
+        return _empty_validation_preview_frame()
+
+    if preview.empty:
+        return _empty_validation_preview_frame()
+
+    for column in ["row_number", "column_name", "invalid_value", "reason"]:
+        if column not in preview.columns:
+            preview[column] = ""
+
+    preview = preview[["row_number", "column_name", "invalid_value", "reason"]].copy()
+    preview["row_number"] = pd.to_numeric(preview["row_number"], errors="coerce").fillna(0).astype(int)
+    preview["column_name"] = preview["column_name"].astype(str)
+    preview["invalid_value"] = preview["invalid_value"].astype(str)
+    preview["reason"] = preview["reason"].astype(str)
+    return preview.head(10).reset_index(drop=True)
 
 
 def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | None) -> dict:
@@ -1123,6 +1198,22 @@ def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | No
     ].reset_index(drop=True)
 
     validation_results, validation_overview = _aggregate_validation_results(clover_results)
+    raw_validation_previews = dict(clover_results.get("validation_previews") or {})
+    validation_previews = _empty_validation_previews()
+    validation_previews["email"] = _coerce_validation_preview(raw_validation_previews.get("email"))
+    validation_previews["name"] = _coerce_validation_preview(raw_validation_previews.get("name"))
+    dob_preview_frames = [
+        _coerce_validation_preview(raw_validation_previews.get("date_of_birth")),
+        _coerce_validation_preview(raw_validation_previews.get("date")),
+    ]
+    validation_previews["dob"] = (
+        pd.concat([frame for frame in dob_preview_frames if not frame.empty], ignore_index=True)
+        .head(10)
+        .reset_index(drop=True)
+        if any(not frame.empty for frame in dob_preview_frames)
+        else _empty_validation_preview_frame()
+    )
+    validation_previews["phone"] = _coerce_validation_preview(raw_validation_previews.get("phone"))
 
     special_characters = clover_results.get("special_characters")
     if isinstance(special_characters, pd.DataFrame) and not special_characters.empty:
@@ -1178,6 +1269,7 @@ def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | No
         "special_character_columns": special_character_columns,
         "special_character_total": special_character_total,
         "validation_results": validation_results,
+        "validation_previews": validation_previews,
         "validation_overview": validation_overview,
         "duplicate_summary": duplicate_summary,
         "duplicate_tables": dict(clover_results.get("duplicate_tables") or {}),
@@ -1686,13 +1778,81 @@ def render_duplicate_analysis_page(metrics: dict) -> None:
             st.info("No email duplicates found.")
 
 
+def render_validation_preview_card(
+    container_key: str,
+    title: str,
+    subtitle: str,
+    preview_df: pd.DataFrame,
+    empty_message: str,
+) -> None:
+    with st.container(key=container_key):
+        st.markdown(
+            f"""
+            <div class="clover-validation-preview-head">
+                <div class="clover-validation-preview-title">{title}</div>
+                <div class="clover-validation-preview-subtitle">{subtitle}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if preview_df.empty:
+            st.info(empty_message)
+        else:
+            st.dataframe(preview_df.head(10), use_container_width=True, hide_index=True)
+
+
 def render_validation_checks_page(metrics: dict) -> None:
     render_section_header(
         "Validation Checks",
         "Review pass and fail counts for the core identity and contact fields detected in the uploaded file.",
     )
     render_validation_quality_section(metrics, key_prefix="validation_page")
-    st.write(metrics["validation_overview"])
+    render_section_header(
+        "Validation Summary",
+        "A compact summary of how many values passed, failed, and contributed to the current validation risk.",
+    )
+    render_validation_summary_cards(metrics["validation_overview"])
+
+    validation_previews = metrics.get("validation_previews", _empty_validation_previews())
+    render_section_header(
+        "Invalid Value Previews",
+        "Review up to 10 backend-supplied invalid examples for each tracked validation category.",
+    )
+    top_row = st.columns(2, gap="large")
+    with top_row[0]:
+        render_validation_preview_card(
+            "clover-validation-preview-email",
+            "Invalid Emails",
+            "Preview invalid email values returned by the Clover backend.",
+            validation_previews.get("email", _empty_validation_preview_frame()),
+            "No invalid emails found.",
+        )
+    with top_row[1]:
+        render_validation_preview_card(
+            "clover-validation-preview-name",
+            "Invalid Names",
+            "Preview invalid name values returned by the Clover backend.",
+            validation_previews.get("name", _empty_validation_preview_frame()),
+            "No invalid names found.",
+        )
+
+    bottom_row = st.columns(2, gap="large")
+    with bottom_row[0]:
+        render_validation_preview_card(
+            "clover-validation-preview-dob",
+            "Invalid Dates of Birth",
+            "Preview invalid date values returned by the Clover backend.",
+            validation_previews.get("dob", _empty_validation_preview_frame()),
+            "No invalid dates of birth found.",
+        )
+    with bottom_row[1]:
+        render_validation_preview_card(
+            "clover-validation-preview-phone",
+            "Invalid Phone Numbers",
+            "Preview invalid phone values returned by the Clover backend.",
+            validation_previews.get("phone", _empty_validation_preview_frame()),
+            "No invalid phone numbers found.",
+        )
 
 
 def render_data_preview_page(dataset: pd.DataFrame | None) -> None:

@@ -13,7 +13,7 @@ def unique_profile(csv_path: Path):
     missingness = compute_missingness(df)
     column_df, potential_keys = profile_columns(df)
 
-    email_quality, field_quality = validate_fields(df)
+    email_quality, field_quality, validation_previews = validate_fields(df)
 
     duplicate_tables, duplicate_summary = detect_duplicates(
         df, email_quality
@@ -36,6 +36,7 @@ def unique_profile(csv_path: Path):
         "potential_keys": potential_keys,
         "email_quality": email_quality,
         "field_quality": field_quality,
+        "validation_previews": validation_previews,
         "duplicate_tables": duplicate_tables,
         "duplicate_summary": duplicate_summary,
         "quality_score": quality_score,

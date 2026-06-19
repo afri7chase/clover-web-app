@@ -172,6 +172,68 @@ def render_duplicate_summary_cards(duplicate_summary: dict, total_rows: int) -> 
             _render_card(**card)
 
 
+def render_validation_summary_cards(validation_overview: dict) -> None:
+    """Render validation-summary cards using the shared KPI styling."""
+    total_checked = int(validation_overview.get("total_checked", 0))
+    valid_count = int(validation_overview.get("valid_count", 0))
+    invalid_count = int(validation_overview.get("invalid_count", 0))
+    invalid_rate = float(validation_overview.get("invalid_percentage", 0.0))
+
+    invalid_tone = "danger" if invalid_count > 0 else "good"
+    rate_tone = "danger" if invalid_rate >= 15 else "warning" if invalid_rate > 0 else "good"
+    valid_tone = "good" if valid_count > 0 else "warning"
+
+    card_values = [
+        {
+            "title": "Values Checked",
+            "value": f"{total_checked:,}",
+            "tone": "teal",
+            "icon": "&#9635;",
+            "status": "CHECKED",
+            "note": "Validated non-empty values",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Invalid Values",
+            "value": f"{invalid_count:,}",
+            "tone": invalid_tone,
+            "icon": "&#9888;",
+            "status": "REVIEW" if invalid_count > 0 else "CLEAR",
+            "note": "Values failing format rules",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Valid Values",
+            "value": f"{valid_count:,}",
+            "tone": valid_tone,
+            "icon": "&#10003;",
+            "status": "PASS" if valid_count > 0 else "PENDING",
+            "note": "Values passing checks",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+        {
+            "title": "Invalid Rate",
+            "value": f"{invalid_rate:.1f}",
+            "tone": rate_tone,
+            "icon": "&#9681;",
+            "status": "RISK" if invalid_rate > 0 else "CLEAR",
+            "note": "Share of invalid values",
+            "value_suffix": "%",
+            "card_class": "clover-kpi-duplicate-summary",
+        },
+    ]
+
+    first_row = st.columns(2, gap="medium")
+    for column, card in zip(first_row, card_values[:2]):
+        with column:
+            _render_card(**card)
+
+    second_row = st.columns(2, gap="medium")
+    for column, card in zip(second_row, card_values[2:]):
+        with column:
+            _render_card(**card)
+
+
 def render_top_issues_panel(issues: list[dict]) -> None:
     """Render the prioritized issue summary panel."""
     issue_items = []
