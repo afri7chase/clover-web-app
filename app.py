@@ -992,6 +992,7 @@ def build_empty_metrics() -> dict:
     empty_special = pd.DataFrame(
         columns=[
             "column",
+            "column_type",
             "affected_rows",
             "affected_percentage",
             "special_char_count",
@@ -1219,6 +1220,9 @@ def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | No
     if isinstance(special_characters, pd.DataFrame) and not special_characters.empty:
         special_character_columns = special_characters.copy()
         special_character_columns["column"] = special_character_columns["column"].astype(str)
+        if "column_type" not in special_character_columns.columns:
+            special_character_columns["column_type"] = "generic"
+        special_character_columns["column_type"] = special_character_columns["column_type"].astype(str)
         special_character_columns["special_char_count"] = (
             special_character_columns.get("special_char_count", 0).fillna(0).astype(int)
         )
@@ -1226,25 +1230,37 @@ def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | No
             special_character_columns.get("emoji_count", 0).fillna(0).astype(int)
         )
         special_character_columns["affected_rows"] = (
-            special_character_columns["special_char_count"]
-            + special_character_columns["emoji_count"]
+            special_character_columns.get("affected_rows", 0).fillna(0).astype(int)
         )
-        special_character_columns["affected_percentage"] = special_character_columns["affected_rows"].apply(
-            lambda value: round((value / total_rows) * 100, 1) if total_rows else 0.0
+        special_character_columns["affected_percentage"] = (
+            special_character_columns.get("affected_percentage", 0.0).fillna(0.0).astype(float)
         )
         special_character_columns = special_character_columns[
             special_character_columns["affected_rows"] > 0
         ].sort_values(by="affected_rows", ascending=False).reset_index(drop=True)
+        special_character_columns = special_character_columns[
+            [
+                "column",
+                "column_type",
+                "unique_special_chars",
+                "unique_emojis",
+                "special_char_count",
+                "emoji_count",
+                "affected_rows",
+                "affected_percentage",
+            ]
+        ]
     else:
         special_character_columns = pd.DataFrame(
             columns=[
                 "column",
-                "affected_rows",
-                "affected_percentage",
-                "special_char_count",
-                "emoji_count",
+                "column_type",
                 "unique_special_chars",
                 "unique_emojis",
+                "special_char_count",
+                "emoji_count",
+                "affected_rows",
+                "affected_percentage",
             ]
         )
 
