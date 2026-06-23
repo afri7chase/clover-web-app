@@ -7,8 +7,16 @@ from backend.duplicates import detect_duplicates
 from backend.scoring import compute_quality_score, quality_status
 from backend.insights import generate_insights
 from backend.special_chars import detect_special_chars
+
+
+def read_csv_preserve_strings(csv_source) -> pd.DataFrame:
+    """Read CSV values as strings so identifiers like phone numbers keep leading zeros."""
+    df = pd.read_csv(csv_source, dtype=str)
+    return df.replace(r"^\s*$", pd.NA, regex=True)
+
+
 def unique_profile(csv_path: Path):
-    df = pd.read_csv(csv_path)
+    df = read_csv_preserve_strings(csv_path)
 
     missingness = compute_missingness(df)
     column_df, potential_keys = profile_columns(df)

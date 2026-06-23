@@ -9,7 +9,7 @@ import streamlit as st
 import components.cards as cards_module
 import components.charts as charts_module
 import components.sidebar as sidebar_module
-from backend.unique_profile import unique_profile
+from backend.unique_profile import read_csv_preserve_strings, unique_profile
 
 importlib.reload(cards_module)
 importlib.reload(charts_module)
@@ -947,7 +947,7 @@ def load_dataset(uploaded_file) -> pd.DataFrame | None:
     try:
         if hasattr(uploaded_file, "seek"):
             uploaded_file.seek(0)
-        return pd.read_csv(uploaded_file)
+        return read_csv_preserve_strings(uploaded_file)
     except Exception as exc:
         st.error(f"Unable to read the uploaded CSV: {exc}")
         return None

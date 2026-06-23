@@ -5,13 +5,15 @@ import pandas as pd
 from backend.detection import infer_column_type
 
 
-NAME_REGEX = re.compile(r"^[A-Za-z ,.'-]+$")
+NAME_REGEX = re.compile(r"^[A-Za-z ,.\'-]+$")
 FULL_NAME_REGEX = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)+$")
+DATE_OF_BIRTH_REGEX = re.compile(r"^(0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])[/-]\d{4}$")
 DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PHONE_REGEX = re.compile(r"^\+?\d{7,15}$")
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 PREVIEW_LIMIT = 10
 PREVIEW_COLUMNS = ["row_number", "column_name", "invalid_value", "reason"]
+NAME_ALLOWED_SEPARATORS = {" ", "-", "'", "\u2019", "."}
 
 
 def _empty_preview_df() -> pd.DataFrame:
@@ -43,15 +45,82 @@ def _build_invalid_preview(values: pd.Series, invalid_mask: pd.Series, reason: s
     return preview.head(PREVIEW_LIMIT).reset_index(drop=True)
 
 
-def validate_pattern(values: pd.Series, regex, reason: str) -> dict:
-    valid_mask = values.str.match(regex, na=False)
-
+def _build_validation_result(
+    original_values: pd.Series,
+    valid_mask: pd.Series,
+    reason: str,
+) -> dict:
+    invalid_mask = ~valid_mask
     return {
         "valid": int(valid_mask.sum()),
-        "invalid": int((~valid_mask).sum()),
-        "invalid_examples": values[~valid_mask].head(5).tolist(),
-        "invalid_preview": _build_invalid_preview(values, ~valid_mask, reason),
+        "invalid": int(invalid_mask.sum()),
+        "invalid_examples": original_values[invalid_mask].head(5).tolist(),
+        "invalid_preview": _build_invalid_preview(original_values, invalid_mask, reason),
     }
+
+
+def validate_pattern(values: pd.Series, regex, reason: str) -> dict:
+    valid_mask = values.str.match(regex, na=False)
+    return _build_validation_result(values, valid_mask, reason)
+
+
+def _normalize_phone_values(values: pd.Series) -> pd.Series:
+    normalized = values.astype(str).str.strip()
+    normalized = normalized.str.replace(r"\.0$", "", regex=True)
+    normalized = normalized.str.replace(r"[^\d]", "", regex=True)
+    return normalized
+
+
+def validate_phone_values(values: pd.Series, reason: str) -> dict:
+    normalized = _normalize_phone_values(values)
+    valid_mask = normalized.str.match(r"^\d{7,15}$", na=False)
+    return _build_validation_result(values, valid_mask, reason)
+
+
+def _is_valid_name(value: str) -> bool:
+    cleaned = str(value).strip()
+    if not cleaned:
+        return False
+
+    lowered = cleaned.casefold()
+    if "@" in cleaned or "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return False
+    if any(char.isdigit() for char in cleaned):
+        return False
+
+    alpha_count = 0
+    previous_separator = False
+    for index, char in enumerate(cleaned):
+        if char.isalpha():
+            alpha_count += 1
+            previous_separator = False
+            continue
+
+        if char in NAME_ALLOWED_SEPARATORS:
+            if index == 0 or index == len(cleaned) - 1:
+                return False
+            if previous_separator and char != " ":
+                return False
+            previous_separator = char != " "
+            continue
+
+        return False
+
+    return alpha_count > 0
+
+
+def validate_name_values(values: pd.Series, reason: str) -> dict:
+    valid_mask = values.apply(_is_valid_name)
+    return _build_validation_result(values, valid_mask, reason)
+
+
+def validate_date_of_birth_values(values: pd.Series, reason: str) -> dict:
+    format_mask = values.str.match(DATE_OF_BIRTH_REGEX, na=False)
+    normalized = values.str.replace("/", "-", regex=False)
+    parsed_dates = pd.to_datetime(normalized, format="%m-%d-%Y", errors="coerce")
+    today = pd.Timestamp.today().normalize()
+    valid_mask = format_mask & parsed_dates.notna() & parsed_dates.le(today)
+    return _build_validation_result(values, valid_mask, reason)
 
 
 def validate_fields(df: pd.DataFrame):
@@ -86,10 +155,9 @@ def validate_fields(df: pd.DataFrame):
             )
 
         elif col_type == "phone":
-            result = validate_pattern(
+            result = validate_phone_values(
                 values,
-                PHONE_REGEX,
-                "Expected a phone number with 7 to 15 digits.",
+                "Expected 7 to 15 digits after removing separators.",
             )
             result.update({"type": "phone", "missing": missing, "total": total})
             field_quality[col] = result
@@ -98,7 +166,19 @@ def validate_fields(df: pd.DataFrame):
                 result["invalid_preview"],
             )
 
-        elif col_type in {"date_of_birth", "date"}:
+        elif col_type == "date_of_birth":
+            result = validate_date_of_birth_values(
+                values,
+                "Expected format MM/DD/YYYY or MM-DD-YYYY and a valid non-future date.",
+            )
+            result.update({"type": col_type, "missing": missing, "total": total})
+            field_quality[col] = result
+            validation_previews["date_of_birth"] = _append_preview(
+                validation_previews["date_of_birth"],
+                result["invalid_preview"],
+            )
+
+        elif col_type == "date":
             result = validate_pattern(
                 values,
                 DATE_REGEX,
@@ -112,11 +192,9 @@ def validate_fields(df: pd.DataFrame):
             )
 
         elif col_type == "name":
-            regex = FULL_NAME_REGEX if " " in values.head(1).to_string() else NAME_REGEX
-            result = validate_pattern(
+            result = validate_name_values(
                 values,
-                regex,
-                "Expected alphabetic name characters only.",
+                "Expected a valid personal name using letters, spaces, apostrophes, hyphens, or periods.",
             )
             result.update({"type": "name", "missing": missing, "total": total})
             field_quality[col] = result
