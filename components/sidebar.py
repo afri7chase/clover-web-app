@@ -3,11 +3,11 @@
 
 NAVIGATION_OPTIONS = [
     "Overview",
+    "Data Preview",
     "Column Profile",
     "Missing Values",
     "Duplicate Analysis",
     "Validation Checks",
-    "Data Preview",
     "Special Characters",
     "Reports",
     "Settings",
@@ -49,27 +49,6 @@ def render_sidebar(dataset_info=None):
             unsafe_allow_html=True,
         )
 
-        st.markdown(
-            '<div class="clover-sidebar-section-label">Navigation</div>',
-            unsafe_allow_html=True,
-        )
-        for item in NAVIGATION_OPTIONS:
-            slug = _nav_slug(item)
-            is_active = st.session_state["clover_nav"] == item
-            container_key = (
-                f"clover-nav-active-{slug}" if is_active else f"clover-nav-item-{slug}"
-            )
-            with st.container(key=container_key):
-                if st.button(
-                    item,
-                    key=f"clover_sidebar_nav_{slug}",
-                    icon=NAVIGATION_ICONS[item],
-                    use_container_width=True,
-                ):
-                    if st.session_state["clover_nav"] != item:
-                        st.session_state["clover_nav"] = item
-                        st.rerun()
-
         with st.container(key="clover-sidebar-upload-card"):
             st.markdown(
                 '<div class="clover-sidebar-section-label">Upload CSV</div>',
@@ -91,6 +70,35 @@ def render_sidebar(dataset_info=None):
                 "upload_complete": False,
             }
 
+        analysis_status = st.session_state.get("clover_analysis_status", {})
+        status_state = analysis_status.get("state", "idle")
+        status_title = analysis_status.get("title", "Status")
+        status_message = analysis_status.get(
+            "message",
+            "Upload a CSV file to run dataset profiling and validation checks.",
+        )
+
+        st.markdown(
+            '<div class="clover-sidebar-section-label">Navigation</div>',
+            unsafe_allow_html=True,
+        )
+        for item in NAVIGATION_OPTIONS:
+            slug = _nav_slug(item)
+            is_active = st.session_state["clover_nav"] == item
+            container_key = (
+                f"clover-nav-active-{slug}" if is_active else f"clover-nav-item-{slug}"
+            )
+            with st.container(key=container_key):
+                if st.button(
+                    item,
+                    key=f"clover_sidebar_nav_{slug}",
+                    icon=NAVIGATION_ICONS[item],
+                    use_container_width=True,
+                ):
+                    if st.session_state["clover_nav"] != item:
+                        st.session_state["clover_nav"] = item
+                        st.rerun()
+
         st.markdown(
             f"""
             <div class="clover-sidebar-card">
@@ -107,12 +115,41 @@ def render_sidebar(dataset_info=None):
             unsafe_allow_html=True,
         )
 
-        if dataset_info.get("upload_complete", False):
+        if status_state == "complete":
             st.markdown(
                 """
-                <div class="clover-sidebar-status-card">
-                    <div class="clover-sidebar-status-title">&#10003; Analysis Complete</div>
+                <div class="clover-sidebar-status-card is-complete">
+                    <div class="clover-sidebar-status-title">
+                        <span class="clover-sidebar-status-icon">&#10003;</span>
+                        <span>Analysis Complete</span>
+                    </div>
                     <div class="clover-sidebar-status-copy">All checks finished successfully.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif status_state == "running":
+            st.markdown(
+                f"""
+                <div class="clover-sidebar-status-card is-running">
+                    <div class="clover-sidebar-status-title">
+                        <span class="clover-sidebar-status-icon">&#9711;</span>
+                        <span>{status_title}</span>
+                    </div>
+                    <div class="clover-sidebar-status-copy">{status_message}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        elif status_state == "error":
+            st.markdown(
+                f"""
+                <div class="clover-sidebar-status-card is-error">
+                    <div class="clover-sidebar-status-title">
+                        <span class="clover-sidebar-status-icon">!</span>
+                        <span>{status_title}</span>
+                    </div>
+                    <div class="clover-sidebar-status-copy">{status_message}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
