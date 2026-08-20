@@ -4,7 +4,7 @@ import pandas as pd
 from backend.profiling import compute_missingness, profile_columns
 from backend.validation import validate_fields
 from backend.duplicates import detect_duplicates
-from backend.scoring import compute_quality_score, quality_status
+from backend.scoring import compute_quality_components, compute_quality_score, quality_status
 from backend.insights import generate_insights
 from backend.special_chars import detect_special_chars
 
@@ -34,6 +34,15 @@ def unique_profile(csv_path: Path):
         email_quality,
         field_quality,
         duplicate_summary,
+        special_chars_df,
+    )
+    quality_components = compute_quality_components(
+        df,
+        column_df,
+        email_quality,
+        field_quality,
+        duplicate_summary,
+        special_chars_df,
     )
 
     status = quality_status(quality_score)
@@ -49,6 +58,7 @@ def unique_profile(csv_path: Path):
         "duplicate_summary": duplicate_summary,
         "quality_score": quality_score,
         "quality_status": status,
+        "quality_components": quality_components,
         "special_characters": special_chars_df,
     }
 

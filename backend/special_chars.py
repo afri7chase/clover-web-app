@@ -60,11 +60,12 @@ TECHNICAL_TOKENS = {
     "digest",
     "uuid",
 }
-DEFAULT_ALLOWED_PUNCTUATION = {" ", "-", "'", "’", ".", ",", "/", "&", "#", "(", ")", "+", "_", ":"}
-NAME_ALLOWED_PUNCTUATION = {" ", "-", "'", "’", "."}
-ADDRESS_ALLOWED_PUNCTUATION = {" ", "#", ".", ",", "/", "-", "&", "'", "’"}
+DEFAULT_ALLOWED_PUNCTUATION = {" ", "-", "'", "\u2019", ".", ",", "/", "&", "#", "(", ")", "+", "_", ":"}
+NAME_ALLOWED_PUNCTUATION = {" ", "-", "'", "\u2019", "."}
+ADDRESS_ALLOWED_PUNCTUATION = {" ", "#", ".", ",", "/", "-", "&", "'", "\u2019"}
 PHONE_ALLOWED_PUNCTUATION = {" ", "+", "-", "(", ")"}
 EMAIL_ALLOWED_PUNCTUATION = {"@", ".", "_", "-", "+"}
+USERNAME_ALLOWED_PUNCTUATION = {"_", "-", "."}
 SKIP_COLUMN_TYPES = {"password", "technical"}
 
 
@@ -106,7 +107,7 @@ def _infer_special_char_column_type(column_name: str, series: pd.Series) -> str:
         return "address"
 
     inferred = infer_column_type(series)
-    if inferred in {"email", "name", "phone"}:
+    if inferred in {"email", "name", "phone", "username"}:
         return inferred
     if inferred in {"date_of_birth", "date"}:
         return "date"
@@ -128,6 +129,9 @@ def _is_allowed_char(char: str, column_type: str) -> bool:
 
     if column_type == "name":
         return _is_letter(char) or char in NAME_ALLOWED_PUNCTUATION
+
+    if column_type == "username":
+        return _is_letter(char) or _is_digit(char) or char in USERNAME_ALLOWED_PUNCTUATION
 
     if column_type == "date":
         return _is_digit(char) or char in {"-", "/", " "}

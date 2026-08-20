@@ -2,6 +2,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from utils.validation_config import VALIDATION_ORDER
+
 
 CHART_THEME = {
     "paper_bgcolor": "rgba(0,0,0,0)",
@@ -237,37 +239,38 @@ def render_validation_quality_section(
 ) -> None:
     """Render the validation quality donuts for key field types."""
     validation_results = metrics["validation_results"]
-    ordered_keys = ["email", "name", "dob", "phone"]
-    columns = st.columns(4, gap="medium")
+    for start in range(0, len(VALIDATION_ORDER), 3):
+        row_keys = VALIDATION_ORDER[start:start + 3]
+        columns = st.columns(len(row_keys), gap="medium")
 
-    for column, key in zip(columns, ordered_keys):
-        result = validation_results[key]
-        with column:
-            st.markdown(
-                f"""
-                <div class="clover-mini-panel">
-                    <div class="clover-mini-title">{result['label']}</div>
-                    <div class="clover-mini-subtitle">
-                        {'Columns: ' + ', '.join(map(str, result['matched_columns'])) if result['matched_columns'] else 'No matching columns detected'}
+        for column, key in zip(columns, row_keys):
+            result = validation_results[key]
+            with column:
+                st.markdown(
+                    f"""
+                    <div class="clover-mini-panel">
+                        <div class="clover-mini-title">{result['label']}</div>
+                        <div class="clover-mini-subtitle">
+                            {'Columns: ' + ', '.join(map(str, result['matched_columns'])) if result['matched_columns'] else 'No matching columns detected'}
+                        </div>
                     </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            _render_validation_donut(
-                result,
-                chart_key=f"{key_prefix}_{key}_validation_donut",
-            )
-            st.markdown(
-                f"""
-                <div class="clover-mini-stats">
-                    <div><span>Valid count</span><strong>{result['valid_count']:,}</strong></div>
-                    <div><span>Invalid count</span><strong>{result['invalid_count']:,}</strong></div>
-                    <div><span>Valid percentage</span><strong>{result['valid_percentage']:.1f}%</strong></div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    """,
+                    unsafe_allow_html=True,
+                )
+                _render_validation_donut(
+                    result,
+                    chart_key=f"{key_prefix}_{key}_validation_donut",
+                )
+                st.markdown(
+                    f"""
+                    <div class="clover-mini-stats">
+                        <div><span>Valid count</span><strong>{result['valid_count']:,}</strong></div>
+                        <div><span>Invalid count</span><strong>{result['invalid_count']:,}</strong></div>
+                        <div><span>Valid percentage</span><strong>{result['valid_percentage']:.1f}%</strong></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
 
 def render_uniqueness_analysis_chart(

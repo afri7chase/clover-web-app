@@ -1,19 +1,29 @@
 import re
+import unicodedata
+from datetime import date, datetime
 
 import pandas as pd
 
 from backend.detection import infer_column_type
 
 
-NAME_REGEX = re.compile(r"^[A-Za-z ,.\'-]+$")
-FULL_NAME_REGEX = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+)+$")
-DATE_OF_BIRTH_REGEX = re.compile(r"^(0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])[/-]\d{4}$")
-DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PHONE_REGEX = re.compile(r"^\+?\d{7,15}$")
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 PREVIEW_LIMIT = 10
 PREVIEW_COLUMNS = ["row_number", "column_name", "invalid_value", "reason"]
 NAME_ALLOWED_SEPARATORS = {" ", "-", "'", "\u2019", "."}
+USERNAME_ALLOWED_SEPARATORS = {"_", "-", "."}
+SUPPORTED_DATE_FORMATS = (
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+    "%Y/%m/%d",
+    "%m-%d-%Y",
+    "%d-%m-%Y",
+    "%Y-%m-%d",
+    "%m.%d.%Y",
+    "%d.%m.%Y",
+    "%Y.%m.%d",
+)
 
 
 def _empty_preview_df() -> pd.DataFrame:
@@ -62,6 +72,18 @@ def _build_validation_result(
 def validate_pattern(values: pd.Series, regex, reason: str) -> dict:
     valid_mask = values.str.match(regex, na=False)
     return _build_validation_result(values, valid_mask, reason)
+
+
+def is_missing_validation_value(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return bool(pd.isna(value))
+
+
+def get_non_missing_validation_values(series: pd.Series) -> pd.Series:
+    return series[~series.apply(is_missing_validation_value)]
 
 
 def _normalize_phone_values(values: pd.Series) -> pd.Series:
@@ -114,12 +136,73 @@ def validate_name_values(values: pd.Series, reason: str) -> dict:
     return _build_validation_result(values, valid_mask, reason)
 
 
-def validate_date_of_birth_values(values: pd.Series, reason: str) -> dict:
-    format_mask = values.str.match(DATE_OF_BIRTH_REGEX, na=False)
-    normalized = values.str.replace("/", "-", regex=False)
-    parsed_dates = pd.to_datetime(normalized, format="%m-%d-%Y", errors="coerce")
-    today = pd.Timestamp.today().normalize()
-    valid_mask = format_mask & parsed_dates.notna() & parsed_dates.le(today)
+def parse_supported_calendar_date(value) -> pd.Timestamp | None:
+    if is_missing_validation_value(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return None if pd.isna(value) else value.normalize()
+
+    if isinstance(value, datetime):
+        return pd.Timestamp(value).normalize()
+
+    if isinstance(value, date):
+        return pd.Timestamp(value).normalize()
+
+    if not isinstance(value, str):
+        return None
+
+    cleaned = value.strip()
+    for date_format in SUPPORTED_DATE_FORMATS:
+        try:
+            return pd.Timestamp(datetime.strptime(cleaned, date_format)).normalize()
+        except ValueError:
+            continue
+    return None
+
+
+def is_valid_calendar_date_value(value) -> bool:
+    return parse_supported_calendar_date(value) is not None
+
+
+def validate_date_values(values: pd.Series, reason: str) -> dict:
+    valid_mask = values.apply(is_valid_calendar_date_value)
+    return _build_validation_result(values, valid_mask, reason)
+
+
+def _is_valid_username(value: str) -> bool:
+    cleaned = str(value).strip()
+    if not cleaned:
+        return False
+
+    lowered = cleaned.casefold()
+    if "@" in cleaned or "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return False
+
+    if cleaned[0] in USERNAME_ALLOWED_SEPARATORS or cleaned[-1] in USERNAME_ALLOWED_SEPARATORS:
+        return False
+
+    has_alphanumeric = False
+    previous_was_separator = False
+    for char in cleaned:
+        if unicodedata.category(char)[0] == "C":
+            return False
+        if char.isalpha() or char.isdigit():
+            has_alphanumeric = True
+            previous_was_separator = False
+            continue
+        if char in USERNAME_ALLOWED_SEPARATORS:
+            if previous_was_separator:
+                return False
+            previous_was_separator = True
+            continue
+        return False
+
+    return has_alphanumeric
+
+
+def validate_username_values(values: pd.Series, reason: str) -> dict:
+    valid_mask = values.apply(_is_valid_username)
     return _build_validation_result(values, valid_mask, reason)
 
 
@@ -129,6 +212,7 @@ def validate_fields(df: pd.DataFrame):
     validation_previews = {
         "email": _empty_preview_df(),
         "name": _empty_preview_df(),
+        "username": _empty_preview_df(),
         "date_of_birth": _empty_preview_df(),
         "phone": _empty_preview_df(),
     }
@@ -167,11 +251,12 @@ def validate_fields(df: pd.DataFrame):
             )
 
         elif col_type == "date_of_birth":
-            result = validate_date_of_birth_values(
-                values,
-                "Expected format MM/DD/YYYY or MM-DD-YYYY and a valid non-future date.",
+            date_values = get_non_missing_validation_values(series)
+            result = validate_date_values(
+                date_values,
+                "Not a valid calendar date",
             )
-            result.update({"type": col_type, "missing": missing, "total": total})
+            result.update({"type": col_type, "missing": int(total - len(date_values)), "total": total})
             field_quality[col] = result
             validation_previews["date_of_birth"] = _append_preview(
                 validation_previews["date_of_birth"],
@@ -179,12 +264,12 @@ def validate_fields(df: pd.DataFrame):
             )
 
         elif col_type == "date":
-            result = validate_pattern(
-                values,
-                DATE_REGEX,
-                "Expected a date format such as YYYY-MM-DD.",
+            date_values = get_non_missing_validation_values(series)
+            result = validate_date_values(
+                date_values,
+                "Not a valid calendar date",
             )
-            result.update({"type": col_type, "missing": missing, "total": total})
+            result.update({"type": col_type, "missing": int(total - len(date_values)), "total": total})
             field_quality[col] = result
             validation_previews["date_of_birth"] = _append_preview(
                 validation_previews["date_of_birth"],
@@ -200,6 +285,18 @@ def validate_fields(df: pd.DataFrame):
             field_quality[col] = result
             validation_previews["name"] = _append_preview(
                 validation_previews["name"],
+                result["invalid_preview"],
+            )
+
+        elif col_type == "username":
+            result = validate_username_values(
+                values,
+                "Expected a valid username using letters, numbers, periods, underscores, or hyphens with no spaces, edge separators, or repeated separators.",
+            )
+            result.update({"type": "username", "missing": missing, "total": total})
+            field_quality[col] = result
+            validation_previews["username"] = _append_preview(
+                validation_previews["username"],
                 result["invalid_preview"],
             )
 

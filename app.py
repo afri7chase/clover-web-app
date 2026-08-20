@@ -11,7 +11,15 @@ import streamlit as st
 import components.cards as cards_module
 import components.charts as charts_module
 import components.sidebar as sidebar_module
+from backend.detection import (
+    is_name_column_label,
+    is_phone_column_label,
+    is_username_column_label,
+    normalize_column_label,
+)
 from backend.unique_profile import read_csv_preserve_strings, unique_profile
+from utils.pdf_report import build_quality_report_pdf_bytes
+from utils.validation_config import VALIDATION_BUCKETS, VALIDATION_ORDER
 
 importlib.reload(cards_module)
 importlib.reload(charts_module)
@@ -33,24 +41,6 @@ QUALITY_STATUS_MAP = {
     "PASS": {"label": "Good", "color": "#39d98a"},
     "WARN": {"label": "Warning", "color": "#ffb020"},
     "FAIL": {"label": "Poor", "color": "#ff6b6b"},
-}
-VALIDATION_BUCKETS = {
-    "email": {
-        "label": "Email Validation",
-        "keywords": ["email", "e-mail", "e_mail", "email_address"],
-    },
-    "name": {
-        "label": "Name Validation",
-        "keywords": ["name", "full_name", "first_name", "last_name"],
-    },
-    "dob": {
-        "label": "Date of Birth Validation",
-        "keywords": ["dob", "birth", "date_of_birth", "birth_date"],
-    },
-    "phone": {
-        "label": "Phone Validation",
-        "keywords": ["phone", "mobile", "telephone", "tel", "contact_number"],
-    },
 }
 ANALYSIS_STATUS_MESSAGES = {
     "idle": "Upload a CSV file to run dataset profiling and validation checks.",
@@ -1702,6 +1692,7 @@ def _empty_validation_previews() -> dict:
     return {
         "email": _empty_validation_preview_frame(),
         "name": _empty_validation_preview_frame(),
+        "username": _empty_validation_preview_frame(),
         "dob": _empty_validation_preview_frame(),
         "phone": _empty_validation_preview_frame(),
     }
@@ -1779,12 +1770,14 @@ def build_empty_metrics() -> dict:
 
 
 def _normalize_column_name(column_name: str) -> str:
-    return str(column_name).strip().lower().replace(" ", "_")
+    return normalize_column_label(column_name)
 
 
 def _resolve_validation_bucket(column_name: str, field_type: str | None = None) -> str | None:
     if field_type == "phone":
         return "phone"
+    if field_type == "username":
+        return "username"
     if field_type in {"date_of_birth", "date"}:
         return "dob"
     if field_type == "name":
@@ -1792,6 +1785,18 @@ def _resolve_validation_bucket(column_name: str, field_type: str | None = None) 
 
     normalized = _normalize_column_name(column_name)
     for bucket_key, config in VALIDATION_BUCKETS.items():
+        if bucket_key == "name":
+            if is_name_column_label(column_name):
+                return bucket_key
+            continue
+        if bucket_key == "username":
+            if is_username_column_label(column_name):
+                return bucket_key
+            continue
+        if bucket_key == "phone":
+            if is_phone_column_label(column_name):
+                return bucket_key
+            continue
         if any(keyword in normalized for keyword in config["keywords"]):
             return bucket_key
     return None
@@ -1856,6 +1861,7 @@ def _build_validation_by_column(clover_results: dict) -> pd.DataFrame:
     issue_labels = {
         "email": "Invalid Emails",
         "name": "Invalid Names",
+        "username": "Invalid Usernames",
         "dob": "Invalid Dates",
         "phone": "Invalid Phone",
     }
@@ -2065,6 +2071,7 @@ def adapt_clover_results(dataset: pd.DataFrame | None, clover_results: dict | No
     validation_previews = _empty_validation_previews()
     validation_previews["email"] = _coerce_validation_preview(raw_validation_previews.get("email"))
     validation_previews["name"] = _coerce_validation_preview(raw_validation_previews.get("name"))
+    validation_previews["username"] = _coerce_validation_preview(raw_validation_previews.get("username"))
     dob_preview_frames = [
         _coerce_validation_preview(raw_validation_previews.get("date_of_birth")),
         _coerce_validation_preview(raw_validation_previews.get("date")),
@@ -2755,6 +2762,15 @@ def build_quality_report_pdf(
     top_issues: list[dict],
 ) -> bytes:
     """Build a polished Clover PDF report from the current analysis results."""
+    column_risk_ranking = build_column_risk_ranking(metrics, limit=10)
+    return build_quality_report_pdf_bytes(
+        dataset_info,
+        metrics,
+        quality_score,
+        top_issues,
+        column_risk_ranking,
+    )
+
     pdf = _load_reportlab_dependencies()
     A4 = pdf["A4"]
     Canvas = pdf["Canvas"]
@@ -2898,6 +2914,8 @@ def build_quality_report_pdf(
                 recommendations.append("Standardize invalid phone numbers.")
             if validation_results.get("name", {}).get("invalid_count", 0) > 0:
                 recommendations.append("Correct invalid name values.")
+            if validation_results.get("username", {}).get("invalid_count", 0) > 0:
+                recommendations.append("Correct invalid username values.")
         if metrics.get("duplicate_rows", 0) > 0:
             recommendations.append("Remove duplicate rows.")
         if int(duplicate_summary.get("email_duplicates_count", 0)) > 0:
@@ -3008,7 +3026,7 @@ def build_quality_report_pdf(
 
     story.extend(section_heading("Validation Summary"))
     validation_data = [["Validation Check", "Valid Count", "Invalid Count", "Valid Percentage"]]
-    for key in ["email", "name", "dob", "phone"]:
+    for key in VALIDATION_ORDER:
         result = validation_results.get(key, {})
         validation_data.append(
             [
@@ -3288,41 +3306,56 @@ def render_validation_checks_page(metrics: dict) -> None:
         "Invalid Value Previews",
         "Review up to 10 backend-supplied invalid examples for each tracked validation category.",
     )
-    top_row = st.columns(2, gap="large")
-    with top_row[0]:
-        render_validation_preview_card(
+    preview_specs = [
+        (
             "clover-validation-preview-email",
             "Invalid Emails",
             "Preview invalid email values returned by the Clover backend.",
             validation_previews.get("email", _empty_validation_preview_frame()),
             "No invalid emails found.",
-        )
-    with top_row[1]:
-        render_validation_preview_card(
+        ),
+        (
             "clover-validation-preview-name",
             "Invalid Names",
             "Preview invalid name values returned by the Clover backend.",
             validation_previews.get("name", _empty_validation_preview_frame()),
             "No invalid names found.",
-        )
-
-    bottom_row = st.columns(2, gap="large")
-    with bottom_row[0]:
-        render_validation_preview_card(
+        ),
+        (
+            "clover-validation-preview-username",
+            "Invalid Usernames",
+            "Preview invalid username values returned by the Clover backend.",
+            validation_previews.get("username", _empty_validation_preview_frame()),
+            "No invalid usernames found.",
+        ),
+        (
             "clover-validation-preview-dob",
             "Invalid Dates of Birth",
             "Preview invalid date values returned by the Clover backend.",
             validation_previews.get("dob", _empty_validation_preview_frame()),
             "No invalid dates of birth found.",
-        )
-    with bottom_row[1]:
-        render_validation_preview_card(
+        ),
+        (
             "clover-validation-preview-phone",
             "Invalid Phone Numbers",
             "Preview invalid phone values returned by the Clover backend.",
             validation_previews.get("phone", _empty_validation_preview_frame()),
             "No invalid phone numbers found.",
-        )
+        ),
+    ]
+
+    for start in range(0, len(preview_specs), 2):
+        row_specs = preview_specs[start:start + 2]
+        columns = st.columns(len(row_specs), gap="large")
+        for column, (container_key, title, subtitle, preview_df, empty_message) in zip(columns, row_specs):
+            with column:
+                render_validation_preview_card(
+                    container_key,
+                    title,
+                    subtitle,
+                    preview_df,
+                    empty_message,
+                )
 
 
 def render_data_preview_page(dataset: pd.DataFrame | None) -> None:
@@ -3439,7 +3472,7 @@ def render_settings_page() -> None:
     st.write(
         {
             "supported_format": "CSV",
-            "validation_checks": ["Email", "Name", "Date of Birth", "Phone"],
+            "validation_checks": ["Email", "Name", "Username", "Date of Birth", "Phone"],
             "low_uniqueness_threshold_pct": 25,
             "theme": "Clover enterprise layout",
         }

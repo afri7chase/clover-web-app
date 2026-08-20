@@ -1,24 +1,13 @@
 import pandas as pd
 
-
-VALIDATION_RULES = {
-    "email": {
-        "label": "Email Validation",
-        "keywords": ["email", "e-mail", "e_mail"],
-    },
-    "name": {
-        "label": "Name Validation",
-        "keywords": ["name", "full_name", "first_name", "last_name"],
-    },
-    "dob": {
-        "label": "Date of Birth Validation",
-        "keywords": ["dob", "birth", "date_of_birth", "birth_date"],
-    },
-    "phone": {
-        "label": "Phone Validation",
-        "keywords": ["phone", "mobile", "telephone", "tel", "contact_number"],
-    },
-}
+from backend.detection import (
+    is_name_column_label,
+    is_phone_column_label,
+    is_username_column_label,
+    normalize_column_label,
+)
+from backend.validation import is_valid_calendar_date_value
+from utils.validation_config import VALIDATION_BUCKETS as VALIDATION_RULES
 
 SPECIAL_CHARACTER_PATTERN = r"[^A-Za-z0-9\s@\.\-\+\(\)/,'&]"
 LOW_UNIQUENESS_THRESHOLD = 25.0
@@ -37,13 +26,29 @@ def _default_validation_result(label: str) -> dict:
 
 
 def _normalize_column_name(column_name: str) -> str:
-    return str(column_name).strip().lower().replace(" ", "_")
+    return normalize_column_label(column_name)
 
 
-def _find_matching_columns(dataset: pd.DataFrame, keywords: list[str]) -> list[str]:
+def _find_matching_columns(
+    dataset: pd.DataFrame,
+    keywords: list[str],
+    rule_key: str | None = None,
+) -> list[str]:
     matched_columns = []
     for column in dataset.columns:
         normalized = _normalize_column_name(column)
+        if rule_key == "name":
+            if is_name_column_label(column):
+                matched_columns.append(column)
+            continue
+        if rule_key == "username":
+            if is_username_column_label(column):
+                matched_columns.append(column)
+            continue
+        if rule_key == "phone":
+            if is_phone_column_label(column):
+                matched_columns.append(column)
+            continue
         if any(keyword in normalized for keyword in keywords):
             matched_columns.append(column)
     return matched_columns
@@ -66,9 +71,7 @@ def _validate_name(series: pd.Series) -> pd.Series:
 
 
 def _validate_dob(series: pd.Series) -> pd.Series:
-    parsed = pd.to_datetime(series, errors="coerce")
-    today = pd.Timestamp.today().normalize()
-    return parsed.notna() & parsed.le(today) & parsed.dt.year.ge(1900)
+    return series.apply(is_valid_calendar_date_value)
 
 
 def _validate_phone(series: pd.Series) -> pd.Series:
@@ -76,10 +79,15 @@ def _validate_phone(series: pd.Series) -> pd.Series:
     return digits_only.str.len().between(10, 15)
 
 
+def _validate_username(series: pd.Series) -> pd.Series:
+    return series.str.match(r"^(?![._-])(?!.*[._-]{2})[\w.-]*[A-Za-z0-9][\w.-]*?(?<![._-])$", na=False)
+
+
 def _calculate_validation_results(dataset: pd.DataFrame) -> tuple[dict, dict]:
     validators = {
         "email": _validate_email,
         "name": _validate_name,
+        "username": _validate_username,
         "dob": _validate_dob,
         "phone": _validate_phone,
     }
@@ -90,7 +98,7 @@ def _calculate_validation_results(dataset: pd.DataFrame) -> tuple[dict, dict]:
     total_checked = 0
 
     for key, config in VALIDATION_RULES.items():
-        matched_columns = _find_matching_columns(dataset, config["keywords"])
+        matched_columns = _find_matching_columns(dataset, config["keywords"], key)
         result = _default_validation_result(config["label"])
         result["matched_columns"] = matched_columns
         result["has_match"] = bool(matched_columns)
